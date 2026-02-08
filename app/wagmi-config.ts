@@ -10,7 +10,7 @@ import {
 
 export const config = getDefaultConfig({
   appName: 'Universal Agent Minter',
-  projectId: 'YOUR_PROJECT_ID', // TODO: User should provide this or we use a public one
+  projectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || 'YOUR_PROJECT_ID', // Fallback to placeholder if env var is missing
   chains: [
     mainnet,
     base,
