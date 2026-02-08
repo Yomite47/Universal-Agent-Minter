@@ -108,7 +108,12 @@ export default function Home() {
       let answer;
       if (challenge.startsWith("What is ")) {
           const mathStr = challenge.replace("What is ", "").replace("?", "");
-          answer = eval(mathStr); 
+          // SECURITY: Sanitize math input to prevent arbitrary code execution
+          if (!/^[0-9+\-*/().\s]+$/.test(mathStr)) {
+             throw new Error("Invalid characters in math challenge");
+          }
+          // Safe evaluation using Function constructor with strict numeric check
+          answer = new Function(`return ${mathStr}`)(); 
       } else if (challenge.startsWith("Decode ROT13: ")) {
           answer = challenge.replace("Decode ROT13: ", "").replace(/[a-zA-Z]/g, (c: string) =>
               String.fromCharCode((c <= "Z" ? 90 : 122) >= (c = c.charCodeAt(0) + 13) ? c : c - 26));
