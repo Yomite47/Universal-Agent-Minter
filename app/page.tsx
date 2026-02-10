@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -19,8 +18,14 @@ const CREATOR_WALLET_EVM = "0xcb52f0fe1d559cd2869db7f29753e8951381b4a3"; // REPL
 const FEE_AMOUNT_SOL = 0.005; // ~$1
 const FEE_AMOUNT_ETH = 0.0005; // ~$1.50
 
+interface Endpoints {
+    challenge: string;
+    mint: string;
+    execute: string | null;
+}
+
 interface ChallengeData {
-    apiBase: string;
+    endpoints: Endpoints;
     walletAddr: string;
     challengeId: string;
 }
@@ -91,32 +96,57 @@ export default function Home() {
       const res = await fetchProxy(url);
       const text = await res.text();
 
-      // 2. Parse Metadata
-      const match = text.match(/^---\n([\s\S]*?)\n---/);
-      if (!match) throw new Error("Invalid SKILL.md: No frontmatter. Ensure this is a valid Agent Mint URL.");
-      
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config: Record<string, any> = {};
-      match[1].split('\n').forEach(line => {
-        const [key, ...valParts] = line.split(':');
-        if (key && valParts.length) {
-          let val = valParts.join(':').trim();
-          if (val.startsWith('{') || val.startsWith('[')) {
-             try { val = JSON.parse(val); } catch {}
-          }
-          config[key.trim()] = val;
-        }
-      });
+      // 2. Parse Metadata & Endpoints
+      let config: Record<string, any> = {};
+      let endpoints: Endpoints = {
+          challenge: "",
+          mint: "",
+          execute: null
+      };
 
-      const apiBase = config.metadata?.api_base;
-      if (!apiBase) throw new Error("No api_base found in metadata. This agent does not follow the Villain Minting Standard.");
-      log(`✅ API Base: ${apiBase}`);
+      const match = text.match(/^---\n([\s\S]*?)\n---/);
+      if (match) {
+        match[1].split('\n').forEach(line => {
+            const [key, ...valParts] = line.split(':');
+            if (key && valParts.length) {
+                let val = valParts.join(':').trim();
+                if (val.startsWith('{') || val.startsWith('[')) {
+                    try { val = JSON.parse(val); } catch {}
+                }
+                config[key.trim()] = val;
+            }
+        });
+        const apiBase = config.metadata?.api_base;
+        if (apiBase) {
+            endpoints.challenge = `${apiBase}/villain/challenge`;
+            endpoints.mint = `${apiBase}/villain/agent-mint`;
+        }
+      }
+
+      // Fallback: Scan text for endpoints if missing
+      if (!endpoints.challenge) {
+           log("⚠️ No standard metadata. Scanning text for endpoints...");
+           const baseUrlMatch = text.match(/Base URL:\s*(https?:\/\/[^\s]+)/i);
+           const apiBase = baseUrlMatch ? baseUrlMatch[1] : null;
+
+           const challengeMatch = text.match(/POST\s+(https?:\/\/[^\s]+\/challenge)/i);
+           endpoints.challenge = challengeMatch ? challengeMatch[1] : (apiBase ? `${apiBase}/api/challenge` : "");
+
+           const mintMatch = text.match(/POST\s+(https?:\/\/[^\s]+\/mint)/i);
+           endpoints.mint = mintMatch ? mintMatch[1] : (apiBase ? `${apiBase}/api/mint` : "");
+
+           const executeMatch = text.match(/POST\s+(https?:\/\/[^\s]+\/execute)/i);
+           if (executeMatch) endpoints.execute = executeMatch[1];
+      }
+
+      if (!endpoints.challenge) throw new Error("Could not determine API endpoints from SKILL.md");
+      log(`✅ Challenge Endpoint: ${endpoints.challenge}`);
 
       // 3. Get Challenge
       log("🤖 Requesting Challenge...");
       const walletAddr = mode === "solana" ? solPublicKey?.toBase58() : evmAddress;
       
-      const cRes = await fetchProxy(`${apiBase}/villain/challenge`, {
+      const cRes = await fetchProxy(endpoints.challenge, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ walletAddress: walletAddr, chain: mode }) // Added chain param if API supports it
@@ -167,7 +197,7 @@ export default function Home() {
         }
         log(`✅ Answer: ${answer}`);
         // If solved, proceed to submit immediately
-        await submitAnswer(apiBase, walletAddr!, cData.challengeId, answer);
+        await submitAnswer(endpoints, walletAddr!, cData.challengeId, answer);
 
       } catch (err: unknown) {
          if (err instanceof Error && err.message === "Unknown challenge type") {
@@ -175,7 +205,7 @@ export default function Home() {
              log(`⚠️ Unknown Challenge Type! Requesting Manual Input...`);
              setManualChallenge(challenge);
              if (walletAddr) {
-                 setChallengeData({ apiBase, walletAddr, challengeId: cData.challengeId });
+                 setChallengeData({ endpoints, walletAddr, challengeId: cData.challengeId });
              }
              setLoading(false); // Stop loading spinner so user can interact
              return; // Exit and wait for user input
@@ -196,7 +226,7 @@ export default function Home() {
       if (!manualAnswer || !challengeData) return;
       setLoading(true);
       try {
-          await submitAnswer(challengeData.apiBase, challengeData.walletAddr, challengeData.challengeId, manualAnswer);
+          await submitAnswer(challengeData.endpoints, challengeData.walletAddr, challengeData.challengeId, manualAnswer);
           setManualChallenge(null); // Clear manual mode
       } catch (e: unknown) {
           console.error(e);
@@ -207,10 +237,10 @@ export default function Home() {
       }
   };
 
-  const submitAnswer = async (apiBase: string, walletAddr: string, challengeId: string, answer: string | number) => {
+  const submitAnswer = async (endpoints: Endpoints, walletAddr: string, challengeId: string, answer: string | number) => {
       // 5. Submit Answer
       log("📤 Submitting...");
-      const mRes = await fetchProxy(`${apiBase}/villain/agent-mint`, {
+      const mRes = await fetchProxy(endpoints.mint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -246,8 +276,31 @@ export default function Home() {
           log("🚀 Executing Mint...");
           const mintTx = VersionedTransaction.deserialize(txBuffer);
           const signedTx = await signSolTx!(mintTx);
-          const sig = await connection.sendRawTransaction(signedTx.serialize());
-          log(`🎉 Success! Tx: https://solscan.io/tx/${sig}`);
+
+          if (endpoints.execute) {
+              // 3-Step Flow (Clawgles)
+              log("🚀 Submitting Signed Transaction to Agent...");
+              const signedBase64 = Buffer.from(signedTx.serialize()).toString("base64");
+              
+              const eRes = await fetchProxy(endpoints.execute, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      transaction: signedBase64,
+                      nftMint: mData.nftMint
+                  })
+              });
+              const eData = await eRes.json();
+              if (eData.signature) {
+                  log(`🎉 Success! Tx: https://solscan.io/tx/${eData.signature}`);
+              } else {
+                  log(`⚠️ Finished, but no signature returned: ${JSON.stringify(eData)}`);
+              }
+          } else {
+              // Standard Flow
+              const sig = await connection.sendRawTransaction(signedTx.serialize());
+              log(`🎉 Success! Tx: https://solscan.io/tx/${sig}`);
+          }
 
       } else {
           // --- EVM FLOW ---
@@ -278,8 +331,6 @@ export default function Home() {
               throw new Error("Unknown EVM Transaction format from backend");
           }
       }
-
-      // setStatus("success"); // Removed as per cleanup
   };
 
   return (
