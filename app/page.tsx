@@ -4,19 +4,18 @@ import { useState } from "react";
 // Solana
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { VersionedTransaction, Transaction, SystemProgram, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { VersionedTransaction } from "@solana/web3.js";
 // EVM
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useSendTransaction, useWalletClient } from 'wagmi';
-import { parseEther } from 'viem';
 
 import { Loader2, AlertCircle, Coins } from "lucide-react";
 
 // --- Configuration ---
-const CREATOR_WALLET_SOL = "FJLZ1yc4G9WyVZ56ST23rQa72Zjvmn5RtaFRu9j4eLY3"; // Your Solana Wallet
-const CREATOR_WALLET_EVM = "0xcb52f0fe1d559cd2869db7f29753e8951381b4a3"; // REPLACE WITH YOUR EVM WALLET
-const FEE_AMOUNT_SOL = 0.005; // ~$1
-const FEE_AMOUNT_ETH = 0.0005; // ~$1.50
+// const CREATOR_WALLET_SOL = "FJLZ1yc4G9WyVZ56ST23rQa72Zjvmn5RtaFRu9j4eLY3"; // Support Dev (Disabled)
+// const CREATOR_WALLET_EVM = "0xcb52f0fe1d559cd2869db7f29753e8951381b4a3"; // Support Dev (Disabled)
+// const FEE_AMOUNT_SOL = 0.005; 
+// const FEE_AMOUNT_ETH = 0.0005;
 
 interface Endpoints {
     challenge: string;
@@ -286,58 +285,8 @@ export default function Home() {
           log("✍️ Preparing Solana Transaction...");
           const txBuffer = Buffer.from(mData.transaction, "base64");
           
-          // Fee
-          log(`💰 Sending ${FEE_AMOUNT_SOL} SOL Fee...`);
+          // --- FEE REMOVED (Support Dev) ---
           
-          // Get blockhash explicitly for better confirmation handling
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-          
-          const feeTx = new Transaction().add(
-            SystemProgram.transfer({
-              fromPubkey: solPublicKey!,
-              toPubkey: new PublicKey(CREATOR_WALLET_SOL),
-              lamports: FEE_AMOUNT_SOL * LAMPORTS_PER_SOL,
-            })
-          );
-          
-          // Assign blockhash manually to ensure we track the right one
-          feeTx.recentBlockhash = blockhash;
-          feeTx.feePayer = solPublicKey!;
-
-          const feeSig = await sendSolTx(feeTx, connection);
-          
-          log("⏳ Confirming Fee...");
-          
-          // Manual polling loop for confirmation (Robust for congested network)
-          let confirmed = false;
-          const startTime = Date.now();
-          
-          while (!confirmed && Date.now() - startTime < 60000) { // 60s timeout
-              const status = await connection.getSignatureStatus(feeSig);
-              
-              if (status.value?.confirmationStatus === 'confirmed' || status.value?.confirmationStatus === 'finalized') {
-                  confirmed = true;
-                  log("✅ Fee Paid!");
-                  break;
-              }
-              
-              if (status.value?.err) {
-                  throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
-              }
-              
-              await new Promise(r => setTimeout(r, 2000)); // Check every 2s
-          }
-          
-          if (!confirmed) {
-              // Final check before giving up
-              const status = await connection.getSignatureStatus(feeSig);
-              if (status.value?.confirmationStatus === 'confirmed' || status.value?.confirmationStatus === 'finalized') {
-                   log("✅ Fee Paid (Recovered)!");
-              } else {
-                   throw new Error(`Transaction confirmation timed out. Check Explorer: https://solscan.io/tx/${feeSig}`);
-              }
-          }
-
           // Mint
           log("🚀 Executing Mint...");
           const mintTx = VersionedTransaction.deserialize(txBuffer);
@@ -372,13 +321,7 @@ export default function Home() {
           // --- EVM FLOW ---
           log("✍️ Preparing EVM Transaction...");
           
-          // Fee
-          log(`💰 Sending ${FEE_AMOUNT_ETH} ETH Fee...`);
-          const feeHash = await sendEvmTx({
-              to: CREATOR_WALLET_EVM as `0x${string}`,
-              value: parseEther(FEE_AMOUNT_ETH.toString())
-          });
-          log(`✅ Fee Paid! Tx: ${feeHash}`);
+          // --- FEE REMOVED (Support Dev) ---
           
           // Mint
           if (mData.transaction) {
@@ -452,9 +395,7 @@ export default function Home() {
               placeholder="https://..."
             />
           </div>
-          <p className="text-xs text-neutral-500">
-            Fee: {mode === "solana" ? `${FEE_AMOUNT_SOL} SOL` : `${FEE_AMOUNT_ETH} ETH`} (Support the developer)
-          </p>
+          {/* Fee Notice Removed */}
         </div>
 
         {/* Manual Challenge Input */}
