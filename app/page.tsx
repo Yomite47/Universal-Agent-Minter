@@ -74,7 +74,15 @@ export default function Home() {
                                       errText.includes("429") || errText.includes("503") || 
                                       errText.includes("Too Many Requests") || errText.includes("Service temporarily unavailable");
                   
-                  if (isRetryable && i < retries) {
+                  // Check for FATAL errors that should NOT be retried (e.g. invalid blockhash)
+                  const isFatal = errText.includes("Blockhash not found") || 
+                                  errText.includes("Simulation failed") || 
+                                  errText.includes("Transaction failed") ||
+                                  errText.includes("InstructionError") ||
+                                  errText.includes("AccountNotFound") ||
+                                  errText.includes("already processed");
+
+                  if (isRetryable && !isFatal && i < retries) {
                       log(`⚠️ Server Error (${res.status}). Retrying in ${delay/1000}s... (Attempt ${i+1}/${retries})`);
                       await new Promise(r => setTimeout(r, delay));
                       delay *= 1.5; // Backoff
