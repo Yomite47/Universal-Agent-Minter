@@ -53,7 +53,7 @@ export default function Home() {
   const log = (msg: string) => setLogs((prev) => [...prev, msg]);
 
   // Helper: Fetch via Proxy to avoid CORS (with Retry Logic)
-  const fetchProxy = async (targetUrl: string, options: RequestInit = {}, retries = 5, delay = 2000) => {
+  const fetchProxy = async (targetUrl: string, options: RequestInit = {}, retries = 5, delay = 3000) => {
       for (let i = 0; i <= retries; i++) {
           try {
               const res = await fetch('/api/proxy', {
@@ -69,13 +69,13 @@ export default function Home() {
 
               if (!res.ok) {
                   const errText = await res.text();
-                  // Check for 429 (Rate Limit) or 503 (Service Unavailable)
-                  const isRateLimit = res.status === 429 || res.status === 503 || 
+                  // Check for 429 (Rate Limit), 503 (Service Unavailable), or 500 (Internal Server Error)
+                  const isRetryable = res.status === 429 || res.status === 503 || res.status === 500 ||
                                       errText.includes("429") || errText.includes("503") || 
                                       errText.includes("Too Many Requests") || errText.includes("Service temporarily unavailable");
                   
-                  if (isRateLimit && i < retries) {
-                      log(`⚠️ Server Busy (${res.status}). Retrying in ${delay/1000}s... (Attempt ${i+1}/${retries})`);
+                  if (isRetryable && i < retries) {
+                      log(`⚠️ Server Error (${res.status}). Retrying in ${delay/1000}s... (Attempt ${i+1}/${retries})`);
                       await new Promise(r => setTimeout(r, delay));
                       delay *= 1.5; // Backoff
                       continue; 
@@ -85,9 +85,9 @@ export default function Home() {
               }
               return res;
           } catch (err: any) {
-             // Only retry on rate limits or if it's the last attempt rethrow
-             if (i < retries && (err.message.includes("429") || err.message.includes("503") || err.message.includes("Too Many Requests"))) {
-                 log(`⚠️ Server Busy. Retrying in ${delay/1000}s...`);
+             // Only retry on network/server errors
+             if (i < retries && (err.message.includes("429") || err.message.includes("503") || err.message.includes("500") || err.message.includes("Too Many Requests"))) {
+                 log(`⚠️ Network/Server Issue. Retrying in ${delay/1000}s...`);
                  await new Promise(r => setTimeout(r, delay));
                  delay *= 1.5;
                  continue;
